@@ -5,15 +5,14 @@
 
 inline void reload(void* p)
 {
-    /*asm volatile ("movq (%0), %%rax\n"
+    asm volatile ("movq (%0), %%rax\n"
     :
     : "c" (p)
-    : "rax");*/
+    : "rax");
 }
 
 inline void flush(void* p) {
-    __asm clflush p;
-    //asm volatile ( "clflush (%0)" :: "r"( p ) );
+    asm volatile ( "clflush (%0)" :: "r"( p ) );
 }
 
 #endif /* _FLUSHRLD_H_ */
