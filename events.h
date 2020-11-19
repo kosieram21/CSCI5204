@@ -18,12 +18,13 @@ private:
     std::queue<event> _queue;
 
 public:
-    void record_event(std::string id, const std::function<void()>& evt) {
+    event record_event(std::string id, const std::function<void()>& evt) {
         std::chrono::duration<double, std::milli> start = timestamp();
         evt();
         std::chrono::duration<double, std::milli> end = timestamp();
         double duration = end.count() - start.count();
         _queue.push(event{ std::move(id), start.count(), end.count(), duration });
+	return _queue.back();
     }
 
     event next_event() {
