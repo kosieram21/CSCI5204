@@ -3,14 +3,15 @@
 
 inline unsigned long long rdtsc() {
   unsigned long long a, d;
-  asm volatile ("mfence");
+  asm volatile ("lfence");
   asm volatile ("rdtsc" : "=a" (a), "=d" (d));
+  asm volatile ("lfence");
   a = (d << 32) | a;
-  asm volatile ("mfence");
   return a;
 }
 
 inline size_t flush(void* p) {
+  asm volatile ( "mfence" );
   unsigned long long time = rdtsc();
   asm volatile ( "clflush (%0)" :: "r"( p ) );
   size_t delta = rdtsc() - time;
@@ -19,11 +20,12 @@ inline size_t flush(void* p) {
 
 inline size_t reload(void* p)
 {
+  asm volatile ( "mfence" );
   unsigned long long time = rdtsc();
   asm volatile ("movq (%0), %%rax\n"
   :
   : "c" (p)
-  : "rax");
+  : "%rax");
   size_t delta = rdtsc() - time;
   return delta;
 }

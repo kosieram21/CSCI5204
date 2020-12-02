@@ -1,49 +1,55 @@
 #include <thread>
 #include <iostream>
+#include <sched.h>
 
 #include "events.h"
 
-unsigned int DELAY_AFTER_FLUSH = 10;
-unsigned int DELAY_AFTER_RELOAD = 0;
-size_t RELOAD_THRESHOLD = 900;
-
 unsigned int MONITORED_MEMORY = 0;
 
-unsigned int TARGET_DATA = 0xF0F0F0F0;
-size_t TARGET_DATA_SIZE = sizeof(unsigned int) * 8;
+unsigned int DELAY_AFTER_FLUSH = 50;
+size_t RELOAD_THRESHOLD = 600;
 
-unsigned int DELAY_BEFORE_VICTIM_ACCESS = 10;
-unsigned int DELAY_AFTER_VICTIM_ACCESS = 0;
+unsigned int TARGET_DATA = 0xF0F0F0F0;
+size_t TARGET_DATA_SIZE = sizeof(TARGET_DATA) * 8;
+
+unsigned int DELAY_BETWEEN_VICTIM_ACCESS = 50;
 
 event_queue g_victim_event_queue;
 event_queue g_attack_event_queue;
 
+void set_affinity(int cpu) {
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu, &cpuset);
+  sched_setaffinity(0, sizeof(cpuset), &cpuset);
+}
+
 void victim() {
+  set_affinity(1);
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
-    std::this_thread::sleep_for(std::chrono::nanoseconds(DELAY_BEFORE_VICTIM_ACCESS));
+    std::this_thread::sleep_for(std::chrono::nanoseconds(DELAY_BETWEEN_VICTIM_ACCESS));
     unsigned int mask = 0x01 << i;
     if((TARGET_DATA & mask) == mask)
       g_victim_event_queue.record_victim_access(&MONITORED_MEMORY);
-    //std::this_thread::sleep_for(std::chrono::nanoseconds(DELAY_AFTER_VICTIM_ACCESS));
   }
 }
 
 void attack() {
+  set_affinity(2);
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
     g_attack_event_queue.record_flush(&MONITORED_MEMORY);
     std::this_thread::sleep_for(std::chrono::nanoseconds(DELAY_AFTER_FLUSH));
     g_attack_event_queue.record_reload(&MONITORED_MEMORY);
-    //std::this_thread::sleep_for(std::chrono::nanoseconds(DELAY_AFTER_RELOAD));
   }
 }
 
 int main() {
   std::thread attack_thread(attack);
   std::thread victim_thread(victim);
-
+  
   attack_thread.join();
   victim_thread.join();
-
+  
   event_queue g_event_queue = event_queue::merge(g_victim_event_queue, g_attack_event_queue);
   unsigned int g_result = 0;
   size_t i = 0;
