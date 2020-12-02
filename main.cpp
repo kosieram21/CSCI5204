@@ -2,11 +2,10 @@
 #include <iostream>
 
 #include "events.h"
-#include "flushrld.h"
 
-unsigned int DELAY_AFTER_FLUSH = 150;
-unsigned int DELAY_AFTER_RELOAD = 150;
-double RELOAD_THRESHOLD = 0.0023;
+unsigned int DELAY_AFTER_FLUSH = 200;
+unsigned int DELAY_AFTER_RELOAD = 50;
+size_t RELOAD_THRESHOLD = 700;
 
 unsigned int MONITORED_MEMORY = 0;
 unsigned int TARGET_DATA = 0xFFFFFFFF;
@@ -16,32 +15,26 @@ event_queue g_event_queue;
 unsigned int g_result = 0;
 
 void victim() {
-  size_t m = 100;
-  size_t n = TARGET_DATA_SIZE;
-
-  for(size_t i = 0; i < n; i++) {
+  for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    g_event_queue.record_event("victim access" + std::to_string(i),
-			       [i, m]() {
-				 unsigned int mask = 0x01 << i;
-				 if((TARGET_DATA & mask) == mask) {
-				   for(size_t j = 0; j < m; j++)
-				     reload(&MONITORED_MEMORY);
-				 }
-			       });
+    
+    unsigned int mask = 0x01 << i;
+    if((TARGET_DATA & mask) == mask)
+      g_event_queue.record_victim_access(&MONITORED_MEMORY);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
   }
 }
 
 void attack() {
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
-    g_event_queue.record_event("flush", []() { flush(&MONITORED_MEMORY); });
+    g_event_queue.record_flush(&MONITORED_MEMORY);
     std::this_thread::sleep_for(std::chrono::milliseconds(DELAY_AFTER_FLUSH));
 
-    event e = g_event_queue.record_event("reload", []() { reload(&MONITORED_MEMORY); });
+    event e = g_event_queue.record_reload(&MONITORED_MEMORY);
     std::this_thread::sleep_for(std::chrono::milliseconds(DELAY_AFTER_RELOAD));
 
-    if(e.duration < RELOAD_THRESHOLD) {
+    if(e.rdtsc < RELOAD_THRESHOLD) {
       unsigned int mask = 0x01 << i;
       g_result = g_result | mask;
     }
@@ -57,7 +50,8 @@ int main() {
 
   while(!g_event_queue.is_empty()) {
     event evt = g_event_queue.next_event();
-    std::cout << evt.id << "[" << evt.start << "," << evt.end << "]" << evt.duration << std::endl;
+    //std::cout << evt.id << "[" << evt.start << "," << evt.end << "]" << evt.rdtsc << std::endl;
+    std::cout << evt.id << " " << evt.rdtsc << std::endl;
   }
 
   unsigned int correct = 0;
@@ -72,6 +66,6 @@ int main() {
 
   double error_rate = (double)correct / (double)TARGET_DATA_SIZE;
   std::cout << error_rate * 100 << "%" << std::endl;
-
+  
   return 0;
 }
