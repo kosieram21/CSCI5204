@@ -5,7 +5,7 @@
 unsigned int MONITORED_MEMORY = 0;
 
 int main() {
-  size_t n = 100;
+  size_t n = 1;
   double s1 = 0;
   double s2 = 0;
 
