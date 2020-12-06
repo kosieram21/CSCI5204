@@ -69,7 +69,7 @@ double calibrate() {
   }
 
   double delta = s1 - s2;
-  double reload_threshold = s1 - delta / 10;
+  double reload_threshold = s1 - delta / 4;
   return reload_threshold;
 }
 
@@ -80,9 +80,10 @@ double compute_error(double reload_threshold) {
     unsigned int mask = 0x01 << i;
     size_t cycles = _event_queue.next_reload_cycles();
 
-    if(cycles < reload_threshold && (TARGET_DATA & mask) == mask)
-      correct++;
-    else if((TARGET_DATA & mask) == 0x00)
+    unsigned int bit1 = cycles < reload_threshold ? 0x01 : 0x00;
+    unsigned int bit2 = (TARGET_DATA & mask) >> i;
+    std::cout << bit1 << "," << bit2 << std::endl;
+    if(bit1 == bit2)
       correct++;
   }
   
@@ -104,6 +105,7 @@ int main() {
     std::cout << e.id << "[" << e.start << "," << e.end << "]" << e.cycles << std::endl;
   }
 
+  std::cout << reload_threshold << std::endl;
   double error = compute_error(reload_threshold);
   std::cout << error * 100 << "%" << std::endl;
   
