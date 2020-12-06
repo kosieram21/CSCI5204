@@ -13,63 +13,71 @@ struct event {
   double start;
   double end;
   double duration;
-  size_t rdtsc;
+  size_t cycles;
 };
 
 class event_queue {
 private:
-  std::queue<event> _queue;
+  std::queue<event> _attack_queue;
+  std::queue<event> _victim_queue;
+
+  std::queue<size_t> _reload_cycles_queue;
 
 public:
-  event record_flush(void* p) {
-    return record_event("flush", [p]() { return flush(p); });
+  void record_flush(void* p) {
+    _attack_queue.push(record_event("flush", [p]() { return flush(p); }));
   }
 
-  event record_reload(void* p) {
-    return record_event("reload", [p]() { return reload(p); });
+  void record_reload(void* p) {
+    event e = record_event("reload", [p]() { return reload(p); });
+    _attack_queue.push(e);
+    _reload_cycles_queue.push(e.cycles);
   }
 
-  event record_victim_access(void* p) {
-    return record_event("victim access", [p]() { return reload(p); });
+  void record_victim_access(void* p) {
+    _victim_queue.push(record_event("victim access", [p]() { return reload(p); }));
   }
   
   event next_event() {
-    event evt = _queue.front();
-    _queue.pop();
-    return evt;
+    if(_attack_queue.empty()) {
+      event e = _victim_queue.front();
+      _victim_queue.pop();
+      return e;
+    } else if(_victim_queue.empty()) {
+      event e = _attack_queue.front();
+      _attack_queue.pop();
+      return e;
+    } else {
+      event e1 = _attack_queue.front();
+      event e2 = _victim_queue.front();
+      if(e1.start < e2.start) {
+	_attack_queue.pop();
+	return e1;
+      } else {
+	_victim_queue.pop();
+	return e2;
+      }
+    }
+  }
+
+  size_t next_reload_cycles() {
+    size_t cycles = _reload_cycles_queue.front();
+    _reload_cycles_queue.pop();
+    return cycles;
   }
 
   bool is_empty() {
-    return _queue.empty();
-  }
-
-  static event_queue merge(event_queue q1, event_queue q2) {
-    event_queue q3;
-    while(!q1.is_empty() || !q2.is_empty()) {
-      if(q1.is_empty()) {
-	q3._queue.push(q2.next_event());
-      } else if(q2.is_empty()) {
-	q3._queue.push(q1.next_event());
-      } else {
-	event e1 = q1._queue.front();
-	event e2 = q2._queue.front();
-	if(e1.start < e2.start)
-	  q3._queue.push(q1.next_event());
-	else
-	  q3._queue.push(q2.next_event());
-      }
-    }
-    return q3;
+    return _attack_queue.empty() && _victim_queue.empty();
   }
 
 private:
   event record_event(std::string id, const std::function<size_t()>& evt) {
     std::chrono::duration<double, std::milli> start = timestamp();
-    size_t rdtsc = evt();
+    size_t cycles = evt();
     std::chrono::duration<double, std::milli> end = timestamp();
     double duration = end.count() - start.count();
-    _queue.push(event{ std::move(id), start.count(), end.count(), duration, rdtsc });
-    return _queue.back();
+    event e{std::move(id), start.count(), end.count(), duration, cycles};
+    return e;
   }
   
   static std::chrono::duration<double, std::milli> timestamp() {

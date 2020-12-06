@@ -12,22 +12,30 @@ inline unsigned long long rdtsc() {
 
 inline size_t flush(void* p) {
   asm volatile ( "mfence" );
-  unsigned long long time = rdtsc();
+  unsigned long long start = rdtsc();
   asm volatile ( "clflush (%0)" :: "r"( p ) );
-  size_t delta = rdtsc() - time;
+  size_t delta = rdtsc() - start;
   return delta;
 }
 
 inline size_t reload(void* p)
 {
   asm volatile ( "mfence" );
-  unsigned long long time = rdtsc();
+  unsigned long long start = rdtsc();
   asm volatile ("movq (%0), %%rax\n"
   :
   : "c" (p)
   : "%rax");
-  size_t delta = rdtsc() - time;
+  size_t delta = rdtsc() - start;
   return delta;
+}
+
+inline void wait(size_t cycles) {
+  asm volatile("mfence");
+  unsigned long long start = rdtsc();
+  size_t elapsed = 0;
+  while(elapsed < cycles)
+    elapsed = rdtsc() - start;
 }
 
 #endif /* _FLUSHRLD_H_ */
