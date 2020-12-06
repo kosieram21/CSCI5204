@@ -15,8 +15,6 @@ size_t TARGET_DATA_SIZE = sizeof(TARGET_DATA) * 8;
 unsigned int DELAY_BETWEEN_VICTIM_ACCESS = 50;
 
 unsigned int DELAY_AFTER_FLUSH = 185000;
-size_t RELOAD_THRESHOLD = 315;
-
 int ATTACK_CPU_AFFINITY = 7;
 int ATTACK_THREAD_PRIORITY = 99;
 
@@ -55,30 +53,45 @@ void attack() {
   }
 }
 
-void initialize_cache() {
+double calibrate() {
   size_t n = 100000;
+  double s1, s2;
+  
   for(size_t i = 0; i < n; i++) {
     flush(&MONITORED_MEMORY);
-    reload(&MONITORED_MEMORY);
+    size_t delta = reload(&MONITORED_MEMORY);
+    s1 = s1 + (delta / (double)n);
   }
+
+  for(size_t i = 0; i < n; i++) {
+    size_t delta = reload(&MONITORED_MEMORY);
+    s2 = s2 + (delta / (double)n);
+  }
+
+  double delta = s1 - s2;
+  double reload_threshold = s1 - delta / 10;
+  return reload_threshold;
 }
 
-double compute_error() {
+double compute_error(double reload_threshold) {
   unsigned int correct = 0;
+  
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
     unsigned int mask = 0x01 << i;
     size_t cycles = _event_queue.next_reload_cycles();
-    if(cycles < RELOAD_THRESHOLD && (TARGET_DATA & mask) == mask)
+
+    if(cycles < reload_threshold && (TARGET_DATA & mask) == mask)
       correct++;
     else if((TARGET_DATA & mask) == 0x00)
       correct++;
   }
+  
   double error = (double)correct / (double)TARGET_DATA_SIZE;
   return error;
 }
 
 int main() {
-  initialize_cache();
+  double reload_threshold = calibrate();
   
   std::thread attack_thread(attack);
   std::thread victim_thread(victim);
@@ -90,7 +103,9 @@ int main() {
     event e = _event_queue.next_event();
     std::cout << e.id << "[" << e.start << "," << e.end << "]" << e.cycles << std::endl;
   }
-  std::cout << compute_error() * 100 << "%" << std::endl;
+
+  double error = compute_error(reload_threshold);
+  std::cout << error * 100 << "%" << std::endl;
   
   return 0;
 }
