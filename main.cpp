@@ -10,7 +10,7 @@
 
 unsigned int MONITORED_MEMORY = 0;
 
-unsigned int TARGET_DATA = 0xF0A4FB21;
+unsigned int TARGET_DATA = 0x70A4FB21;
 size_t TARGET_DATA_SIZE = sizeof(TARGET_DATA) * 8;
 unsigned int DELAY_BETWEEN_VICTIM_ACCESS = 50;
 
@@ -69,26 +69,42 @@ double calibrate() {
   }
 
   double delta = s1 - s2;
-  double reload_threshold = s1 - delta / 4;
+  double reload_threshold = s1 - delta / 3;
   return reload_threshold;
 }
 
-double compute_error(double reload_threshold) {
+unsigned int reconstruct_data(double reload_threshold) {
+  unsigned int reconstruction = 0;
+  for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
+    size_t cycles = _event_queue.next_reload_cycles();
+    unsigned int bit = cycles < reload_threshold ? 0x01 : 0x00;
+    reconstruction = reconstruction | (bit << i);
+  }
+  return reconstruction;
+}
+
+double compute_error(unsigned int reconstruction) {
   unsigned int correct = 0;
   
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
     unsigned int mask = 0x01 << i;
-    size_t cycles = _event_queue.next_reload_cycles();
-
-    unsigned int bit1 = cycles < reload_threshold ? 0x01 : 0x00;
+    unsigned int bit1 = (reconstruction & mask) >> i;
     unsigned int bit2 = (TARGET_DATA & mask) >> i;
-    std::cout << bit1 << "," << bit2 << std::endl;
     if(bit1 == bit2)
       correct++;
   }
   
   double error = (double)correct / (double)TARGET_DATA_SIZE;
   return error;
+}
+
+std::string binary(unsigned int data) {
+  std::string bin(TARGET_DATA_SIZE, '0');
+  for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
+    if(((data >> i) & 0x01) == 0x01)
+      bin[i] = '1';
+  }
+  return bin;
 }
 
 int main() {
@@ -105,8 +121,10 @@ int main() {
     std::cout << e.id << "[" << e.start << "," << e.end << "]" << e.cycles << std::endl;
   }
 
-  std::cout << reload_threshold << std::endl;
-  double error = compute_error(reload_threshold);
+  unsigned int reconstruction = reconstruct_data(reload_threshold);
+  double error = compute_error(reconstruction);
+  std::cout << binary(TARGET_DATA) << std::endl;
+  std::cout << binary(reconstruction) << std::endl;
   std::cout << error * 100 << "%" << std::endl;
   
   return 0;
