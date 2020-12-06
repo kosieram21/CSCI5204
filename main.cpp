@@ -1,4 +1,5 @@
 #include <thread>
+#include <chrono>
 #include <iostream>
 #include <utility>
 #include <cstring>
@@ -9,17 +10,15 @@
 
 unsigned int MONITORED_MEMORY = 0;
 
-//unsigned int TARGET_DATA = 0xF0F0F0F0;
 unsigned int TARGET_DATA = 0xF0A4FB21;
 size_t TARGET_DATA_SIZE = sizeof(TARGET_DATA) * 8;
-unsigned int DELAY_BETWEEN_VICTIM_ACCESS = 500000;
+unsigned int DELAY_BETWEEN_VICTIM_ACCESS = 50;
 
-unsigned int DELAY_AFTER_FLUSH = 500000;
-size_t RELOAD_THRESHOLD = 310;
+unsigned int DELAY_AFTER_FLUSH = 185000;
+size_t RELOAD_THRESHOLD = 315;
 
-int VICTIM_CPU_AFFINITY = 1;
 int ATTACK_CPU_AFFINITY = 7;
-int THREAD_PRIORITY = 99;
+int ATTACK_THREAD_PRIORITY = 99;
 
 event_queue _event_queue;
 
@@ -38,10 +37,8 @@ void set_priority(int priority) {
 }
 
 void victim() {
-  set_affinity(VICTIM_CPU_AFFINITY);
-  set_priority(THREAD_PRIORITY);
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
-    wait(DELAY_BETWEEN_VICTIM_ACCESS);
+    std::this_thread::sleep_for(std::chrono::nanoseconds(DELAY_BETWEEN_VICTIM_ACCESS));
     unsigned int mask = 0x01 << i;
     if((TARGET_DATA & mask) == mask)
       _event_queue.record_victim_access(&MONITORED_MEMORY);
@@ -50,7 +47,7 @@ void victim() {
 
 void attack() {
   set_affinity(ATTACK_CPU_AFFINITY);
-  set_priority(THREAD_PRIORITY);
+  set_priority(ATTACK_THREAD_PRIORITY);
   for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
     _event_queue.record_flush(&MONITORED_MEMORY);
     wait(DELAY_AFTER_FLUSH);
@@ -66,6 +63,20 @@ void initialize_cache() {
   }
 }
 
+double compute_error() {
+  unsigned int correct = 0;
+  for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
+    unsigned int mask = 0x01 << i;
+    size_t cycles = _event_queue.next_reload_cycles();
+    if(cycles < RELOAD_THRESHOLD && (TARGET_DATA & mask) == mask)
+      correct++;
+    else if((TARGET_DATA & mask) == 0x00)
+      correct++;
+  }
+  double error = (double)correct / (double)TARGET_DATA_SIZE;
+  return error;
+}
+
 int main() {
   initialize_cache();
   
@@ -79,27 +90,7 @@ int main() {
     event e = _event_queue.next_event();
     std::cout << e.id << "[" << e.start << "," << e.end << "]" << e.cycles << std::endl;
   }
-
-  unsigned int result = 0;
-  for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
-    unsigned int mask = 0x01 << i;
-    size_t cycles = _event_queue.next_reload_cycles();
-    if(cycles < RELOAD_THRESHOLD)
-      result = result | mask;
-  }
-
-  unsigned int correct = 0;
-  for(size_t i = 0; i < TARGET_DATA_SIZE; i++) {
-    unsigned int mask = 0x01 << i;
-    unsigned int masked = result & mask;
-    unsigned int expected = TARGET_DATA & mask;
-
-    if(masked == expected)
-      correct++;
-  }
-
-  double error_rate = (double)correct / (double)TARGET_DATA_SIZE;
-  std::cout << error_rate * 100 << "%" << std::endl;
+  std::cout << compute_error() * 100 << "%" << std::endl;
   
   return 0;
 }
